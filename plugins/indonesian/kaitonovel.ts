@@ -1,4 +1,3 @@
-#zerokaito.blogspot.com
 import { fetchApi } from '@libs/fetch';
 import { Plugin } from '@/types/plugin';
 import { Filters, FilterTypes } from '@libs/filterInputs';
