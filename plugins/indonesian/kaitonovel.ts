@@ -17,7 +17,7 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
   name = 'Kaito Novel';
   icon = 'src/id/kaitonovel/icon.png';
   site = 'https://zerokaito.blogspot.com';
-  version = '1.0.0';
+  version = '1.1.0';
 
   filters = {
     category: {
@@ -106,20 +106,40 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
       novel.summary = summary.trim();
     }
 
+    // Daftar chapter: susuri #post-body berurutan, track "Volume N" sebagai prefix
+    // buat tiap link chapter yang muncul setelahnya, sampai ganti volume berikutnya
     const chapters: Plugin.ChapterItem[] = [];
-    $('#post-body a').each((i, el) => {
-      const href = $(el).attr('href');
-      const text = $(el).text().trim();
-      const isNav = /Sebelumnya|Selanjutnya|Daftar [Ii]si/.test(text);
-      if (href && href.includes('zerokaito.blogspot.com') && text && !isNav) {
-        chapters.push({
-          name: text,
-          path: href.replace(this.site, ''),
-          releaseTime: '',
-          chapterNumber: i,
-        });
-      }
-    });
+    let currentVolume = '';
+
+    $('#post-body')
+      .find('p, div, a')
+      .each((i, el) => {
+        const tag = el.tagName?.toLowerCase();
+
+        if (tag === 'a') {
+          const $el = $(el);
+          const href = $el.attr('href');
+          const text = $el.text().trim();
+          const isNav = /Sebelumnya|Selanjutnya|Daftar [Ii]si/.test(text);
+          if (
+            href &&
+            href.includes('zerokaito.blogspot.com') &&
+            text &&
+            !isNav
+          ) {
+            chapters.push({
+              name: currentVolume ? `${currentVolume} - ${text}` : text,
+              path: href.replace(this.site, ''),
+              releaseTime: '',
+              chapterNumber: chapters.length + 1,
+            });
+          }
+        } else {
+          const text = $(el).clone().children().remove().end().text().trim();
+          const match = text.match(/^Volume\s*(\d+)/i);
+          if (match) currentVolume = `Volume ${match[1]}`;
+        }
+      });
 
     novel.chapters = chapters;
     return novel;
@@ -154,24 +174,38 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
     return body.html() || '';
   }
 
-async searchNovels(searchTerm: string): Promise<Plugin.NovelItem[]> {
-  const res = await fetchApi(
-    `${this.site}/search?q=${encodeURIComponent(searchTerm)}`,
-  );
-  const $ = loadCheerio(await res.text());
+  async searchNovels(searchTerm: string): Promise<Plugin.NovelItem[]> {
+    // Pakai Blogger JSON Feed API langsung, bukan scrape HTML —
+    // lebih stabil karena gak bergantung sama class/tag tema yang bisa ganti-ganti
+    const res = await fetchApi(
+      `${this.site}/feeds/posts/default?alt=json&max-results=20&q=${encodeURIComponent(
+        searchTerm,
+      )}`,
+    );
+    const data = await res.json();
+    const entries: any[] = data?.feed?.entry || [];
 
-  const results: Plugin.NovelItem[] = [];
-  $('.entry-title a').each((i, el) => {
-    const href = $(el).attr('href');
-    if (!href) return;
-    results.push({
-      name: $(el).text().trim(),
-      path: href.replace(this.site, ''),
-      cover: defaultCover,
-    });
-  });
-  return results;
-}
+    const results: Plugin.NovelItem[] = [];
+    for (const entry of entries) {
+      const title: string = entry?.title?.$t || '';
+      const links: any[] = entry?.link || [];
+      const altLink = links.find(l => l.rel === 'alternate');
+      const href: string | undefined = altLink?.href;
+      if (!href || !title) continue;
+
+      const thumb: string | undefined = entry?.media$thumbnail?.url;
+      const cover = thumb
+        ? thumb.replace(/\/s72-c\//, '/s400/').replace(/\/w72-h72[^/]*\//, '/s400/')
+        : defaultCover;
+
+      results.push({
+        name: title,
+        path: href.replace(this.site, ''),
+        cover,
+      });
+    }
+    return results;
+  }
 
   resolveUrl = (path: string) => this.site + path;
 }
