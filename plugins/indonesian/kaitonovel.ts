@@ -154,24 +154,24 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
     return body.html() || '';
   }
 
-  async searchNovels(searchTerm: string): Promise<Plugin.NovelItem[]> {
-    const res = await fetchApi(
-      `${this.site}/search?q=${encodeURIComponent(searchTerm)}`,
-    );
-    const $ = loadCheerio(await res.text());
+async searchNovels(searchTerm: string): Promise<Plugin.NovelItem[]> {
+  const res = await fetchApi(
+    `${this.site}/search?q=${encodeURIComponent(searchTerm)}`,
+  );
+  const $ = loadCheerio(await res.text());
 
-    const results: Plugin.NovelItem[] = [];
-    $('h1.entry-title a, .post-title a').each((i, el) => {
-      const href = $(el).attr('href');
-      if (!href) return;
-      results.push({
-        name: $(el).text().trim(),
-        path: href.replace(this.site, ''),
-        cover: defaultCover,
-      });
+  const results: Plugin.NovelItem[] = [];
+  $('.entry-title a').each((i, el) => {
+    const href = $(el).attr('href');
+    if (!href) return;
+    results.push({
+      name: $(el).text().trim(),
+      path: href.replace(this.site, ''),
+      cover: defaultCover,
     });
-    return results;
-  }
+  });
+  return results;
+}
 
   resolveUrl = (path: string) => this.site + path;
 }
