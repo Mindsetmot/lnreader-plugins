@@ -135,7 +135,7 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
             });
           }
         } else {
-          const text = $(el).clone().children().remove().end().text().trim();
+          const text = $(el).text().trim();
           const match = text.match(/^Volume\s*(\d+)/i);
           if (match) currentVolume = `Volume ${match[1]}`;
         }
