@@ -12,12 +12,47 @@ const CATEGORY_PATHS: Record<string, string> = {
   drop: '/p/dropaxed.html',
 };
 
+// Teks "awal" elemen: berhenti pas ketemu link/br/blok anak, supaya header volume
+// yang satu <p> sama daftar chapter gak ikut kebawa (misal "Volume 11.5<a>Chapter 1</a>")
+const BREAK_TAGS = ['a', 'br', 'p', 'div', 'img', 'ul', 'ol', 'table'];
+const getLeadingText = (
+  $: ReturnType<typeof loadCheerio>,
+  el: any,
+): string => {
+  let out = '';
+  for (const node of $(el).contents().toArray() as any[]) {
+    if (node.type === 'text') {
+      out += node.data || '';
+    } else if (node.type === 'tag') {
+      if (BREAK_TAGS.includes(String(node.name).toLowerCase())) break;
+      out += $(node).text();
+    }
+  }
+  return out.replace(/\s+/g, ' ').trim();
+};
+
+// Support: "Volume 1", "Volume 11.5", "Volume 2 - Judul" (jadi "Volume 2"),
+// dan non-angka kayak "Volume Bonus", "Volume Extra", "Volume Side Story"
+const parseVolumeHeader = (text: string): string => {
+  const num = text.match(/^Volume\s*(\d+(?:[.,]\d+)?)(?!\d)/i);
+  if (num) return `Volume ${num[1].replace(',', '.')}`;
+
+  // Non-angka: harus pendek biar kalimat biasa yang kebetulan diawali
+  // kata "Volume" gak kebaca sebagai header
+  const word = text.match(/^Volume\s+([^\d\s].{0,29})$/i);
+  if (word) {
+    const label = word[1].replace(/[\s:\-–—]+$/, '').trim();
+    if (label) return `Volume ${label}`;
+  }
+  return '';
+};
+
 class KaitoNovelPlugin implements Plugin.PluginBase {
   id = 'kaitonovel';
   name = 'Kaito Novel';
   icon = 'src/id/kaitonovel/icon.png';
   site = 'https://zerokaito.blogspot.com';
-  version = '1.1.0';
+  version = '1.1.1';
 
   filters = {
     category: {
@@ -135,9 +170,8 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
             });
           }
         } else {
-          const text = $(el).text().trim();
-          const match = text.match(/^Volume\s*(\d+)/i);
-          if (match) currentVolume = `Volume ${match[1]}`;
+          const volume = parseVolumeHeader(getLeadingText($, el));
+          if (volume) currentVolume = volume;
         }
       });
 
