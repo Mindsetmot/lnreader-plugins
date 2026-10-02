@@ -8,7 +8,7 @@ class SakuraNovel implements Plugin.PluginBase {
   name = 'SakuraNovel';
   icon = 'src/id/sakuranovel/icon.png';
   site = 'https://sakuranovel.id/';
-  version = '1.0.1';
+  version = '1.0.2';
 
   parseNovels(loadedCheerio: CheerioAPI) {
     const novels: Plugin.NovelItem[] = [];
@@ -137,14 +137,42 @@ class SakuraNovel implements Plugin.PluginBase {
 
     const loadedCheerio = parseHTML(body);
 
-    const divi = loadedCheerio("div:contains('Daftar Isi') +")
-      .find('div:first')
-      .attr('class');
-    loadedCheerio(`.${divi}`).remove();
-    const chapterText =
-      loadedCheerio("div:contains('Daftar Isi') +").html() || '';
+    // Isi chapter ada di antara dua bar .entry-pagination (atas & bawah). Tepat
+    // setelah bar atas ada div umpan kosong ("please stop scrape my site"), dan
+    // class div isinya aneh & bisa ganti-ganti. Jadi jangan andalkan nama class:
+    // ambil div di antara kedua bar yang punya <p> langsung paling banyak.
+    const candidates = loadedCheerio('.entry-pagination')
+      .first()
+      .nextUntil('.entry-pagination', 'div');
+    let content = candidates.eq(0);
+    let bestCount = 0;
+    candidates.each((i, el) => {
+      const count = loadedCheerio(el).children('p').length;
+      if (count > bestCount) {
+        bestCount = count;
+        content = candidates.eq(i);
+      }
+    });
 
-    return chapterText;
+    // Cadangan: kalau struktur bar berubah, cari div (di luar banner cookie
+    // dan komentar) yang <p> langsungnya paling banyak.
+    if (bestCount === 0) {
+      const divs = loadedCheerio('div').not(
+        '[class*="cky-"], .comment, .comment *',
+      );
+      divs.each((i, el) => {
+        const count = loadedCheerio(el).children('p').length;
+        if (count > bestCount) {
+          bestCount = count;
+          content = divs.eq(i);
+        }
+      });
+    }
+
+    if (bestCount === 0) return '';
+
+    content.find('script, style, iframe, ins, .ads').remove();
+    return content.html()?.trim() || '';
   }
 
   async searchNovels(
