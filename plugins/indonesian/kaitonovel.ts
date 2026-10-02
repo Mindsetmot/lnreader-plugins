@@ -12,30 +12,15 @@ const CATEGORY_PATHS: Record<string, string> = {
   drop: '/p/dropaxed.html',
 };
 
-// Teks "awal" elemen: berhenti pas ketemu link/br/blok anak, supaya header volume
-// yang satu <p> sama daftar chapter gak ikut kebawa (misal "Volume 11.5<a>Chapter 1</a>")
-const BREAK_TAGS = ['a', 'br', 'p', 'div', 'img', 'ul', 'ol', 'table'];
-const getLeadingText = (
-  $: ReturnType<typeof loadCheerio>,
-  el: any,
-): string => {
-  let out = '';
-  for (const node of $(el).contents().toArray() as any[]) {
-    if (node.type === 'text') {
-      out += node.data || '';
-    } else if (node.type === 'tag') {
-      if (BREAK_TAGS.includes(String(node.name).toLowerCase())) break;
-      out += $(node).text();
-    }
-  }
-  return out.replace(/\s+/g, ' ').trim();
-};
-
 // Support: "Volume 1", "Volume 11.5", "Volume 2 - Judul" (jadi "Volume 2"),
 // dan non-angka kayak "Volume Bonus", "Volume Extra", "Volume Side Story"
 const parseVolumeHeader = (text: string): string => {
   const num = text.match(/^Volume\s*(\d+(?:[.,]\d+)?)(?!\d)/i);
-  if (num) return `Volume ${num[1].replace(',', '.')}`;
+  if (num) {
+    // "01" -> "1", "007.5" -> "7.5", "0.5" tetap "0.5", koma jadi titik
+    const n = num[1].replace(',', '.').replace(/^0+(?=\d)/, '');
+    return `Volume ${n}`;
+  }
 
   // Non-angka: harus pendek biar kalimat biasa yang kebetulan diawali
   // kata "Volume" gak kebaca sebagai header
@@ -52,7 +37,7 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
   name = 'Kaito Novel';
   icon = 'src/id/kaitonovel/icon.png';
   site = 'https://zerokaito.blogspot.com';
-  version = '1.1.1';
+  version = '1.1.3';
 
   filters = {
     category: {
@@ -141,39 +126,55 @@ class KaitoNovelPlugin implements Plugin.PluginBase {
       novel.summary = summary.trim();
     }
 
-    // Daftar chapter: susuri #post-body berurutan, track "Volume N" sebagai prefix
-    // buat tiap link chapter yang muncul setelahnya, sampai ganti volume berikutnya
+    // Daftar chapter: jalan di seluruh node #post-body sesuai urutan dokumen.
+    // Teks (di luar link) yang berbentuk "Volume ..." jadi prefix buat link chapter
+    // setelahnya, sampai ketemu header volume berikutnya. Yang dicek node teks,
+    // bukan tag, karena header-nya kadang dibungkus <span>/<div>/<strike> seenaknya.
     const chapters: Plugin.ChapterItem[] = [];
     let currentVolume = '';
 
-    $('#post-body')
-      .find('p, div, a')
-      .each((i, el) => {
-        const tag = el.tagName?.toLowerCase();
+    const walk = (node: any) => {
+      if (node.type === 'text') {
+        const volume = parseVolumeHeader(
+          String(node.data || '')
+            .replace(/\s+/g, ' ')
+            .trim(),
+        );
+        if (volume) currentVolume = volume;
+        return;
+      }
+      if (node.type !== 'tag') return;
 
-        if (tag === 'a') {
-          const $el = $(el);
-          const href = $el.attr('href');
-          const text = $el.text().trim();
-          const isNav = /Sebelumnya|Selanjutnya|Daftar [Ii]si/.test(text);
-          if (
-            href &&
-            href.includes('zerokaito.blogspot.com') &&
-            text &&
-            !isNav
-          ) {
-            chapters.push({
-              name: currentVolume ? `${currentVolume} - ${text}` : text,
-              path: href.replace(this.site, ''),
-              releaseTime: '',
-              chapterNumber: chapters.length + 1,
-            });
-          }
-        } else {
-          const volume = parseVolumeHeader(getLeadingText($, el));
-          if (volume) currentVolume = volume;
+      const tag = String(node.name).toLowerCase();
+      if (tag === 'script' || tag === 'style') return;
+
+      if (tag === 'a') {
+        const $el = $(node);
+        const href = $el.attr('href');
+        const text = $el.text().trim();
+        const isNav = /Sebelumnya|Selanjutnya|Daftar [Ii]si/.test(text);
+        if (
+          href &&
+          href.includes('zerokaito.blogspot.com') &&
+          text &&
+          !isNav
+        ) {
+          chapters.push({
+            name: currentVolume ? `${currentVolume} - ${text}` : text,
+            path: href.replace(this.site, ''),
+            releaseTime: '',
+            chapterNumber: chapters.length + 1,
+          });
         }
-      });
+        return;
+      }
+
+      for (const child of node.children || []) walk(child);
+    };
+
+    $('#post-body')
+      .toArray()
+      .forEach(root => walk(root));
 
     novel.chapters = chapters;
     return novel;
