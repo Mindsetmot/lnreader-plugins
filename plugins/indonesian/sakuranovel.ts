@@ -1,14 +1,57 @@
-import { CheerioAPI, load as parseHTML } from 'cheerio';
+import { Cheerio, CheerioAPI, load as parseHTML } from 'cheerio';
 import { fetchApi } from '@libs/fetch';
 import { Plugin } from '@/types/plugin';
 import { Filters, FilterTypes } from '@libs/filterInputs';
+
+// Ubah URL gambar jadi absolut, dan buang placeholder (data: URI)
+const toAbsoluteUrl = (value: string | undefined, site: string) => {
+  const v = value?.trim();
+  if (!v || v.startsWith('data:')) return undefined;
+  if (v.startsWith('//')) return 'https:' + v;
+  if (v.startsWith('/')) return site.replace(/\/$/, '') + v;
+  return v;
+};
+
+// Situs ini kemungkinan pakai lazy-load: di HTML mentah, src berisi placeholder
+// dan URL aslinya ada di atribut lain (baru ditukar JavaScript di browser).
+// Aplikasi nggak jalanin JS, jadi cek semua kemungkinan atributnya.
+const getImageUrl = (
+  loadedCheerio: CheerioAPI,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  img: Cheerio<any>,
+  site: string,
+) => {
+  const attrs = ['data-src', 'data-lazy-src', 'data-original', 'src'];
+  for (const attr of attrs) {
+    const url = toAbsoluteUrl(img.attr(attr), site);
+    if (url) return url;
+  }
+
+  const srcset = img.attr('data-srcset') || img.attr('srcset');
+  const fromSrcset = toAbsoluteUrl(
+    srcset?.split(',')[0]?.trim().split(' ')[0],
+    site,
+  );
+  if (fromSrcset) return fromSrcset;
+
+  // Plugin lazy-load biasanya nyimpen <img> asli di dalam <noscript>
+  const noscript = img.parent().find('noscript').first().text();
+  if (noscript) {
+    const inner = parseHTML(noscript)('img').first();
+    for (const attr of attrs) {
+      const url = toAbsoluteUrl(inner.attr(attr), site);
+      if (url) return url;
+    }
+  }
+  return undefined;
+};
 
 class SakuraNovel implements Plugin.PluginBase {
   id = 'sakura.id';
   name = 'SakuraNovel';
   icon = 'src/id/sakuranovel/icon.png';
   site = 'https://sakuranovel.id/';
-  version = '1.0.3';
+  version = '1.0.4';
 
   // Sebagian server gambar nolak request tanpa Referer (hotlink protection)
   imageRequestInit: Plugin.ImageRequestInit = {
@@ -25,7 +68,11 @@ class SakuraNovel implements Plugin.PluginBase {
         .find('.flexbox2-title span')
         .first()
         .text();
-      const novelCover = loadedCheerio(el).find('img').attr('src');
+      const novelCover = getImageUrl(
+        loadedCheerio,
+        loadedCheerio(el).find('img').first(),
+        this.site,
+      );
       const novelUrl = loadedCheerio(el)
         .find('.flexbox2-content > a')
         .attr('href');
@@ -73,7 +120,16 @@ class SakuraNovel implements Plugin.PluginBase {
     const novel: Plugin.SourceNovel = {
       path: novelPath,
       name: loadedCheerio('.series-title h2').text().trim() || 'Untitled',
-      cover: loadedCheerio('.series-thumb img').attr('src'),
+      cover:
+        getImageUrl(
+          loadedCheerio,
+          loadedCheerio('.series-thumb img').first(),
+          this.site,
+        ) ||
+        toAbsoluteUrl(
+          loadedCheerio('meta[property="og:image"]').attr('content'),
+          this.site,
+        ),
       author: loadedCheerio(".series-infolist > li b:contains('Author') +")
         .text()
         .trim(),
