@@ -8,7 +8,14 @@ class SakuraNovel implements Plugin.PluginBase {
   name = 'SakuraNovel';
   icon = 'src/id/sakuranovel/icon.png';
   site = 'https://sakuranovel.id/';
-  version = '1.0.2';
+  version = '1.0.3';
+
+  // Sebagian server gambar nolak request tanpa Referer (hotlink protection)
+  imageRequestInit: Plugin.ImageRequestInit = {
+    headers: {
+      Referer: this.site,
+    },
+  };
 
   parseNovels(loadedCheerio: CheerioAPI) {
     const novels: Plugin.NovelItem[] = [];
