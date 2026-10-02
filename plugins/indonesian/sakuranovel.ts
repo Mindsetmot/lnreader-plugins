@@ -43,7 +43,34 @@ const getImageUrl = (
       if (url) return url;
     }
   }
+
+  // Terakhir: atribut apa pun (nama bebas) yang isinya URL gambar
+  const allAttrs: Record<string, string> = img.attr() || {};
+  for (const value of Object.values(allAttrs)) {
+    if (/\.(jpe?g|png|webp|gif|avif)(\?|\s|,|$)/i.test(value)) {
+      const url = toAbsoluteUrl(value.split(',')[0].trim().split(' ')[0], site);
+      if (url) return url;
+    }
+  }
   return undefined;
+};
+
+// Cover kadang dipasang lewat CSS: style="background-image:url(...)"
+const getBackgroundUrl = (
+  loadedCheerio: CheerioAPI,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  root: Cheerio<any>,
+  site: string,
+) => {
+  let found: string | undefined;
+  root.find('[style*="url("]').each((_, el) => {
+    if (found) return;
+    const m = (loadedCheerio(el).attr('style') || '').match(
+      /url\(\s*['"]?([^'")]+)['"]?\s*\)/i,
+    );
+    found = toAbsoluteUrl(m?.[1], site);
+  });
+  return found;
 };
 
 class SakuraNovel implements Plugin.PluginBase {
@@ -51,7 +78,7 @@ class SakuraNovel implements Plugin.PluginBase {
   name = 'SakuraNovel';
   icon = 'src/id/sakuranovel/icon.png';
   site = 'https://sakuranovel.id/';
-  version = '1.0.4';
+  version = '1.0.5';
 
   // Sebagian server gambar nolak request tanpa Referer (hotlink protection)
   imageRequestInit: Plugin.ImageRequestInit = {
@@ -68,11 +95,12 @@ class SakuraNovel implements Plugin.PluginBase {
         .find('.flexbox2-title span')
         .first()
         .text();
-      const novelCover = getImageUrl(
-        loadedCheerio,
-        loadedCheerio(el).find('img').first(),
-        this.site,
-      );
+      const novelCover =
+        getImageUrl(
+          loadedCheerio,
+          loadedCheerio(el).find('img').first(),
+          this.site,
+        ) || getBackgroundUrl(loadedCheerio, loadedCheerio(el), this.site);
       const novelUrl = loadedCheerio(el)
         .find('.flexbox2-content > a')
         .attr('href');
